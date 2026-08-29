@@ -1,3 +1,8 @@
+## 2.0.1 - 2026-08-29
+
+- Prevented Retail chat-lockdown secret values from reaching channel-message normalization and causing repeated Lua errors
+- Protected channel observations are skipped without mutating evidence, then scanning resumes automatically when restrictions end; Classic behavior is unchanged
+
 ## 2.0.0 - 2026-05-27
 
 - Player-facing evidence statuses: `Observing`, `Early Pattern`, `Repeated Pattern`, `Strong Pattern`, `Very Strong Pattern`, and `Peer Context Only`

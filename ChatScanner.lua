@@ -5,6 +5,7 @@ _G.BigBotTracker = BBT
 BBT.ChatScanner = BBT.ChatScanner or {}
 
 local ChatScanner = BBT.ChatScanner
+local Compat = BBT.Compat
 local Util = BBT.Util
 local Normalizer = BBT.Normalizer
 local Storage = BBT.Storage
@@ -241,6 +242,15 @@ function ChatScanner.HandleChannelMessage(
     guid
 )
     if not BBT.DB then
+        return
+    end
+
+    if
+        Compat.IsChatMessagingLockedDown()
+        or Compat.IsSecretValue(text)
+        or Compat.IsSecretValue(sender)
+        or Compat.IsSecretValue(guid)
+    then
         return
     end
 

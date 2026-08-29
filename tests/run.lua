@@ -534,6 +534,14 @@ local function sendChannel(sender, text, seconds, channelName, channelBaseName, 
     )
 end
 
+local function countTableEntries(value)
+    local count = 0
+    for _ in pairs(value or {}) do
+        count = count + 1
+    end
+    return count
+end
+
 assertEqual(BBT.UI.GetRefreshCount(), 0, "hidden UI starts with no refreshes")
 BBT.UI.MarkDirty("hidden-test")
 BBT.UI.OnUpdate(1)
@@ -602,6 +610,165 @@ local seller = BBT.Storage.GetCandidate("Seller-Area52")
 assertTruthy(seller, "repeated seller should promote after enough evidence")
 assertEqual(seller.realmKey, "area52", "seller realm key")
 assertTruthy(BBT.UI.IsDirty(), "promotion should mark UI dirty")
+
+local function snapshotScannerState(candidate, pretrackIdentity)
+    local pretrack = BBT.runtime.pretrack[pretrackIdentity.fullKey]
+    return {
+        candidateCount = #BBT.Storage.GetAllCandidates(),
+        candidateMessages = candidate.totalMessages,
+        candidateLastSeen = candidate.lastSeen,
+        candidateLastGuid = candidate.lastGuid,
+        candidateLastLineID = candidate.lastLineID,
+        pretrackCount = countTableEntries(BBT.runtime.pretrack),
+        pretrackMessageCount = #(pretrack.messages or {}),
+        pretrackRecentCount = #(pretrack.recentMessages or {}),
+        pretrackAdIntentMessages = pretrack.adIntentMessages or 0,
+        pretrackNearDuplicateMessages = pretrack.nearDuplicateMessages or 0,
+        recentCount = countTableEntries(BBT.runtime.recentNormalized),
+        candidateRecentCount = #(BBT.runtime.recentNormalized[candidate.fullKey] or {}),
+        pretrackRuntimeRecentCount = #(BBT.runtime.recentNormalized[pretrackIdentity.fullKey] or {}),
+        seenLineCount = countTableEntries(BBT.runtime.seenLines),
+        baselineSampleCount = countTableEntries(BBT.runtime.baselineSampled),
+    }
+end
+
+local function assertScannerStateEqual(actual, expected, label)
+    for key, expectedValue in pairs(expected) do
+        assertEqual(actual[key], expectedValue, label .. " " .. key)
+    end
+end
+
+local originalChatMessagingLockdown = _G.C_ChatInfo.InChatMessagingLockdown
+local originalIsSecretValue = _G.issecretvalue
+local chatMessagingLockedDown = false
+local secretValue = nil
+local protectedSender = "ProtectedPretrack-Area52"
+local protectedIdentity = BBT.Util.NormalizeIdentity(protectedSender)
+local protectedSeedLineID = 900000
+local originalRecordPretrackBaselineSample = BBT.Storage.RecordPretrackBaselineSample
+
+BBT.Storage.RecordPretrackBaselineSample = nil
+BBT.ChatScanner.HandleChannelMessage(
+    "WTS protected pretrack seed",
+    protectedSender,
+    "2. Trade - City",
+    nil,
+    2,
+    "Trade",
+    protectedSeedLineID,
+    "protected-seed-guid"
+)
+BBT.Storage.RecordPretrackBaselineSample = originalRecordPretrackBaselineSample
+assertTruthy(BBT.runtime.pretrack[protectedIdentity.fullKey], "protected-event fixture should start pretracked")
+
+_G.C_ChatInfo.InChatMessagingLockdown = function()
+    return chatMessagingLockedDown
+end
+_G.issecretvalue = function(value)
+    return value == secretValue
+end
+
+local protectedObservations = {
+    {
+        label = "chat messaging lockdown",
+        lockedDown = true,
+        secret = nil,
+        text = "WTS protected lockdown boost",
+        sender = protectedSender,
+        lineID = 900001,
+        guid = "protected-lockdown-guid",
+    },
+    {
+        label = "secret chat text",
+        lockedDown = false,
+        secret = "protected-secret-text",
+        text = "protected-secret-text",
+        sender = protectedSender,
+        lineID = 900002,
+        guid = "protected-text-guid",
+    },
+    {
+        label = "secret chat sender",
+        lockedDown = false,
+        secret = protectedSender,
+        text = "WTS protected sender boost",
+        sender = protectedSender,
+        lineID = 900003,
+        guid = "protected-sender-guid",
+    },
+    {
+        label = "secret chat guid",
+        lockedDown = false,
+        secret = "protected-secret-guid",
+        text = "WTS protected guid boost",
+        sender = protectedSender,
+        lineID = 900004,
+        guid = "protected-secret-guid",
+    },
+}
+
+for _, observation in ipairs(protectedObservations) do
+    chatMessagingLockedDown = observation.lockedDown
+    secretValue = observation.secret
+    local stateBefore = snapshotScannerState(seller, protectedIdentity)
+
+    BBT.ChatScanner.HandleChannelMessage(
+        observation.text,
+        observation.sender,
+        "2. Trade - City",
+        nil,
+        2,
+        "Trade",
+        observation.lineID,
+        observation.guid
+    )
+
+    assertScannerStateEqual(
+        snapshotScannerState(seller, protectedIdentity),
+        stateBefore,
+        observation.label .. " should be a no-op"
+    )
+    assertEqual(BBT.runtime.seenLines[observation.lineID], nil, observation.label .. " should not mark the line seen")
+end
+
+BBT.runtime.pretrack[protectedIdentity.fullKey] = nil
+BBT.runtime.recentNormalized[protectedIdentity.fullKey] = nil
+BBT.runtime.seenLines[protectedSeedLineID] = nil
+_G.C_ChatInfo.InChatMessagingLockdown = nil
+_G.issecretvalue = nil
+assertEqual(BBT.Compat.IsChatMessagingLockedDown(), false, "missing lockdown API should default false")
+assertEqual(BBT.Compat.IsSecretValue("ordinary text"), false, "missing secret-value API should default false")
+
+local classicSender = "ClassicCompat-Area52"
+local classicIdentity = BBT.Util.NormalizeIdentity(classicSender)
+local classicLineID = 900005
+BBT.Storage.RecordPretrackBaselineSample = nil
+BBT.ChatScanner.HandleChannelMessage(
+    "WTS classic compatibility boost",
+    classicSender,
+    "2. Trade - City",
+    nil,
+    2,
+    "Trade",
+    classicLineID,
+    "classic-compat-guid"
+)
+BBT.Storage.RecordPretrackBaselineSample = originalRecordPretrackBaselineSample
+
+assertTruthy(BBT.runtime.pretrack[classicIdentity.fullKey], "missing Retail APIs should preserve pretracking")
+assertEqual(
+    #(BBT.runtime.recentNormalized[classicIdentity.fullKey] or {}),
+    1,
+    "missing Retail APIs should preserve recent-message tracking"
+)
+assertEqual(BBT.runtime.seenLines[classicLineID], true, "missing Retail APIs should preserve line deduplication")
+assertEqual(BBT.Storage.GetCandidate(classicIdentity), nil, "single Classic-compatible message should not promote")
+
+BBT.runtime.pretrack[classicIdentity.fullKey] = nil
+BBT.runtime.recentNormalized[classicIdentity.fullKey] = nil
+BBT.runtime.seenLines[classicLineID] = nil
+_G.C_ChatInfo.InChatMessagingLockdown = originalChatMessagingLockdown
+_G.issecretvalue = originalIsSecretValue
 
 local refreshCountBeforeOpen = BBT.UI.GetRefreshCount()
 BBT.UI.Open()

@@ -148,6 +148,24 @@ function Compat.IsClassic()
         or flavor == Compat.FLAVOR_MISTS
 end
 
+function Compat.IsChatMessagingLockedDown()
+    if not C_ChatInfo or type(C_ChatInfo.InChatMessagingLockdown) ~= "function" then
+        return false
+    end
+
+    local ok, isLockedDown = pcall(C_ChatInfo.InChatMessagingLockdown)
+    return ok and isLockedDown == true
+end
+
+function Compat.IsSecretValue(value)
+    if type(issecretvalue) ~= "function" then
+        return false
+    end
+
+    local ok, isSecret = pcall(issecretvalue, value)
+    return ok and isSecret == true
+end
+
 local DEFAULT_TEMPLATE_FALLBACKS = {
     BasicFrameTemplateWithInset = { "BasicFrameTemplate" },
     UIPanelButtonTemplate = {},
